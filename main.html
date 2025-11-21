@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Our Future Date Countdown</title>
+    <!-- Load Tailwind CSS for beautiful, responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #D32F2F; /* Deep Red */
+            --secondary-color: #FFC107; /* Gold/Amber */
+            --bg-color: #F5F5F5;
+            --redeemed-color: #388E3C; /* Dark Green */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            background-image: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%);
+            min-height: 100vh;
+        }
+        .calendar-door {
+            transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background-color: var(--primary-color);
+            border: 3px solid var(--secondary-color);
+            position: relative;
+            aspect-ratio: 1 / 1; /* Ensure square doors */
+        }
+        .calendar-door:hover:not(.locked):not(.redeemed) {
+            transform: translateY(-5px) scale(1.03);
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.2);
+        }
+        .locked {
+            filter: grayscale(80%);
+            opacity: 0.8;
+            cursor: not-allowed;
+            background-color: #880E4F; /* Darker, less inviting color */
+        }
+        .open-door {
+            background-color: #FBEFDD; /* Creamy light background for opened text */
+            border: 3px solid var(--secondary-color);
+            color: var(--primary-color);
+            cursor: default;
+            transform: none !important;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .redeemed {
+            background-color: #E8F5E9; /* Light green/mint for redeemed voucher */
+            border: 3px solid var(--redeemed-color);
+            color: var(--redeemed-color);
+        }
+        .content-card {
+            max-width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .loading-ring {
+            border: 4px solid var(--secondary-color);
+            border-top-color: transparent;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables for Firebase access
+        window.app = null;
+        window.db = null;
+        window.auth = null;
+        window.userId = null;
+        window.isAuthReady = false;
+        
+        // Configuration from environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'future-date-advent-2024';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        /**
+         * Initializes Firebase and authenticates the user.
+         */
+        async function initializeFirebase() {
+            try {
+                if (!firebaseConfig) {
+                    console.error("Firebase configuration missing. Using local fallback.");
+                    window.isAuthReady = true;
+                    return;
+                }
+
+                // setLogLevel('debug'); // Enable for debugging
+                window.app = initializeApp(firebaseConfig);
+                window.db = getFirestore(window.app);
+                window.auth = getAuth(window.app);
+
+                // Authenticate
+                if (initialAuthToken) {
+                    await signInWithCustomToken(window.auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(window.auth);
+                }
+
+                window.userId = window.auth.currentUser?.uid || crypto.randomUUID();
+                window.isAuthReady = true;
+                console.log("Firebase initialized and user signed in:", window.userId);
+
+                // Once authenticated, start the main application logic
+                window.setupCalendar(window.db, window.userId, appId);
+
+            } catch (error) {
+                console.error("Error during Firebase initialization or authentication:", error);
+                // Fallback state: Auth is technically ready (failed), proceed with limited functionality
+                window.isAuthReady = true;
+                window.setupCalendar(null, null, appId);
+            }
+        }
+
+        initializeFirebase();
+    </script>
+</head>
+
+<body class="p-4 md:p-8 flex flex-col items-center">
+
+    <header class="text-center mb-8 p-4 bg-white rounded-xl shadow-lg w-full max-w-4xl">
+        <h1 class="text-4xl font-bold text-gray-800">24 Dates with You</h1>
+        <p class="text-lg text-gray-600 mt-2">Opening the future, one day at a time, my love.</p>
+        <p id="current-date-display" class="mt-2 text-sm text-gray-500"></p>
+        <div id="loading-indicator" class="mt-4 flex justify-center items-center space-x-2">
+            <div class="loading-ring"></div>
+            <p>Initializing magic...</p>
+        </div>
+        <p id="user-id-display" class="mt-1 text-xs text-gray-400 hidden">User ID: <span id="user-id-value"></span></p>
+    </header>
+
+    <div id="calendar-grid" class="w-full max-w-4xl grid grid-cols-4 sm:grid-cols-6 gap-3 md:gap-4 lg:gap-6 opacity-0 transition-opacity duration-500">
+        <!-- Calendar doors will be injected here -->
+    </div>
+
+    <!-- Modal for Door Content -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="content-card bg-white rounded-2xl shadow-2xl p-6 md:p-8 flex flex-col relative transform transition-all duration-300 scale-95" id="modal-content-container">
+            <button id="close-modal" class="absolute top-3 right-3 text-gray-500 hover:text-gray-900 text-3xl font-bold">
+                &times;
+            </button>
+            <h2 id="modal-title" class="text-3xl font-bold mb-4 text-gray-800 text-center border-b pb-2"></h2>
+            <div id="modal-body" class="text-gray-700 space-y-4">
+                <!-- Content injected here -->
+            </div>
+            <div id="modal-actions" class="mt-6 text-center pt-4 border-t">
+                <!-- Action button (Redeem) injected here -->
+            </div>
+            <div id="modal-footer" class="mt-2 text-center text-sm text-gray-500">
+                Day <span id="modal-day"></span> of 24
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- CALENDAR DATA (Future Planner Focus) ---
+        const CALENDAR_ENTRIES = [
+            // Focused on compliments and future plans for early relationship
+            { day: 1, title: "Æ elske å vær med dæ'", content: "Hver gang æ e med dæ så flyr tia og æ e konstant glad. Fortsett å vær den du er", type: 'compliment', media: null },
+            { day: 2, title: "VOUCHER: The 'You Pick' Takeout Night", content: "Et free pass til takeout night, ka en du vil spis. hvilken type mat resturant og valgfritt film av dæ", type: 'voucher', media: "https://placehold.co/800x400/FFD700/800080?text=VOUCHER:+Takeout+Night" },
+            { day: 3, title: "Cutie patotie", content: "Du vil værra sexy men i mine øyne er du alltid søt og når du er sexy så tørr æ egt ikke at du ska ut.", type: 'compliment', media: null },
+            { day: 4, title: "VOUCHER: Game Night", content: "Game night. Tanken er overcooked, mario, escape room board game.", type: 'voucher', media: "https://placehold.co/800x400/98FB98/006400?text=VOUCHER:+Deep+Talk" },
+
+        ];
+
+        // --- GLOBAL STATE ---
+        let openedDoors = new Set();
+        let redeemedVouchers = new Set();
+        let firestoreDb = null;
+        let currentUserId = null;
+        let currentAppId = null;
+        const COLLECTION_NAME = 'advent_calendar_state';
+        const DOCUMENT_ID = 'date_vouchers';
+
+        /**
+         * Determines the current day number (1-24) based on the month and day.
+         * Returns 0 if outside December 1st to 24th.
+         */
+        function getCurrentAdventDay() {
+            const now = new Date();
+            // NOTE: For testing purposes, you can manually set the current date here.
+            // const now = new Date('2024-12-10T12:00:00'); 
+            
+            if (now.getMonth() !== 11) { // 11 is December
+                // If it's not December, allow all doors up to the 24th to be opened for testing.
+                return 24; 
+            }
+            if (now.getDate() >= 1 && now.getDate() <= 24) {
+                return now.getDate();
+            }
+            return 0;
+        }
+
+        const today = getCurrentAdventDay();
+        const currentDateDisplay = document.getElementById('current-date-display');
+        const now = new Date();
+        currentDateDisplay.textContent = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        // --- FIREBASE/FIRESTORE LOGIC ---
+        
+        /**
+         * Gets the user's document path for the advent calendar state.
+         * @returns {string} The document path.
+         */
+        function getStateDocPath() {
+            if (!currentUserId || !currentAppId) return null;
+            // Private data path: /artifacts/{appId}/users/{userId}/{your_collection_name}/{documentId}
+            return `artifacts/${currentAppId}/users/${currentUserId}/${COLLECTION_NAME}/${DOCUMENT_ID}`;
+        }
+        
+        /**
+         * Fetches and sets up the real-time listener for the opened doors state.
+         */
+        window.setupCalendar = (dbInstance, userId, appId) => {
+            const grid = document.getElementById('calendar-grid');
+            grid.classList.remove('opacity-0');
+            document.getElementById('loading-indicator').classList.add('hidden');
+            
+            firestoreDb = dbInstance;
+            currentUserId = userId;
+            currentAppId = appId;
+            
+            const userIdDisplay = document.getElementById('user-id-value');
+            if (userIdDisplay) {
+                userIdDisplay.textContent = currentUserId || 'N/A';
+                document.getElementById('user-id-display').classList.remove('hidden');
+            }
+
+            if (firestoreDb && currentUserId) {
+                const docRef = doc(firestoreDb, getStateDocPath());
+                
+                // Set up real-time listener for opened/redeemed state
+                onSnapshot(docRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        openedDoors = new Set(data.opened || []);
+                        redeemedVouchers = new Set(data.redeemed || []);
+                        console.log("State updated from Firestore: Opened:", Array.from(openedDoors), "Redeemed:", Array.from(redeemedVouchers));
+                    } else {
+                        // Document doesn't exist, initialize state
+                        openedDoors = new Set();
+                        redeemedVouchers = new Set();
+                        setDoc(docRef, { opened: [], redeemed: [] }, { merge: true }).catch(e => console.error("Error creating state doc:", e));
+                    }
+                    renderCalendar();
+                }, (error) => {
+                    console.error("Error listening to Firestore state:", error);
+                    renderCalendar(); // Render anyway with current local state
+                });
+            } else {
+                console.warn("Firestore not available. State will not be persisted.");
+                renderCalendar();
+            }
+        };
+        
+        /**
+         * Updates the opened doors state in Firestore.
+         */
+        async function markDoorAsOpened(day) {
+            if (!firestoreDb || !currentUserId) {
+                console.warn("Cannot persist state: Firestore not initialized.");
+                openedDoors.add(day);
+                return;
+            }
+            
+            if (openedDoors.has(day)) return;
+
+            openedDoors.add(day);
+            const docRef = doc(firestoreDb, getStateDocPath());
+            
+            try {
+                await setDoc(docRef, { opened: Array.from(openedDoors) }, { merge: true });
+            } catch (error) {
+                console.error("Error updating opened state:", error);
+            }
+        }
+
+        /**
+         * Updates the redeemed vouchers state in Firestore.
+         */
+        async function redeemVoucher(day) {
+            if (!firestoreDb || !currentUserId) {
+                console.error("Cannot persist state: Firestore not initialized.");
+                return;
+            }
+            
+            if (redeemedVouchers.has(day)) return;
+
+            redeemedVouchers.add(day);
+            const docRef = doc(firestoreDb, getStateDocPath());
+            
+            try {
+                await setDoc(docRef, { redeemed: Array.from(redeemedVouchers) }, { merge: true });
+                // Re-render the calendar grid to show the change
+                renderCalendar(); 
+                // Close the modal now that the action is complete
+                document.getElementById('close-modal').click();
+            } catch (error) {
+                console.error("Error updating redeemed state:", error);
+            }
+        }
+
+
+        // --- UI & INTERACTION LOGIC ---
+
+        /**
+         * Renders the calendar doors based on the current state.
+         */
+        function renderCalendar() {
+            const grid = document.getElementById('calendar-grid');
+            grid.innerHTML = ''; // Clear previous doors
+
+            CALENDAR_ENTRIES.forEach(entry => {
+                const isLocked = entry.day > today;
+                const isOpened = openedDoors.has(entry.day);
+                const isRedeemed = redeemedVouchers.has(entry.day);
+
+                let doorClass = 'calendar-door rounded-xl flex items-center justify-center p-2 text-2xl font-bold transition-all duration-300 ';
+                
+                if (isLocked) {
+                    doorClass += 'locked';
+                } else if (isRedeemed) {
+                    doorClass += 'redeemed';
+                } else if (isOpened) {
+                    doorClass += 'open-door';
+                }
+
+                const door = document.createElement('div');
+                door.className = doorClass;
+                door.dataset.day = entry.day;
+
+                // Determine inner content based on state
+                let innerContent = '';
+                if (isRedeemed) {
+                    innerContent = `
+                        <span class="text-4xl text-white-900">${entry.day}</span>
+                        <span class="text-sm mt-1 flex items-center text-green-700">
+                            <svg class="w-4 h-4 mr-1 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 13.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
+                            REDEEMED
+                        </span>
+                    `;
+                } else if (isLocked) {
+                    innerContent = `
+                        <span class="text-4xl text-gray-200">${entry.day}</span>
+                        <svg class="w-6 h-6 mt-1 text-gray-200" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2V7a5 5 0 00-5-5zm-5 7v2h10V9A3 3 0 0113 7a3 3 0 01-6 0A3 3 0 015 9z"></path></svg>
+                    `;
+                } else if (isOpened) {
+                     innerContent = `
+                        <span class="text-4xl text-red-700">${entry.day}</span>
+                        <span class="text-sm mt-1 text-red-700">Opened</span>
+                    `;
+                } else {
+                     innerContent = `
+                        <span class="text-4xl text-white">${entry.day}</span>
+                        <span class="text-sm mt-1 text-yellow-200">New!</span>
+                    `;
+                }
+
+                door.innerHTML = `<div class="absolute inset-0 flex flex-col items-center justify-center p-2 text-center">${innerContent}</div>`;
+
+                if (!isLocked) {
+                    door.addEventListener('click', () => openDoor(entry.day));
+                }
+                grid.appendChild(door);
+            });
+        }
+
+        /**
+         * Opens the modal with the door content.
+         */
+        function openDoor(day) {
+            const entry = CALENDAR_ENTRIES.find(e => e.day === day);
+            if (!entry) return;
+
+            const isVoucher = entry.type === 'voucher';
+            const isRedeemed = redeemedVouchers.has(day);
+
+            const modal = document.getElementById('modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body');
+            const modalDay = document.getElementById('modal-day');
+            const modalActions = document.getElementById('modal-actions');
+            
+            modalTitle.textContent = entry.title;
+            modalBody.innerHTML = '';
+            modalActions.innerHTML = '';
+
+            // 1. Add Media/Image if available
+            if (entry.media) {
+                const img = document.createElement('img');
+                img.src = entry.media;
+                img.alt = entry.title;
+                img.className = 'w-full h-auto rounded-lg mb-4 shadow-md';
+                // Fallback in case image fails to load
+                img.onerror = function() {
+                    this.onerror = null;
+                    this.src = "https://placehold.co/800x400/6A1B9A/ffffff?text=Image+Load+Failed";
+                };
+                modalBody.appendChild(img);
+            }
+            
+            // 2. Add Content
+            const contentParagraph = document.createElement('p');
+            contentParagraph.textContent = entry.content;
+            
+            if (isVoucher) {
+                contentParagraph.className = 'text-xl font-semibold p-4 border-2 border-dashed border-red-400 bg-red-50 rounded-lg text-center';
+            }
+            modalBody.appendChild(contentParagraph);
+            
+            // 3. Add Action Button if it's a non-redeemed voucher
+            if (isVoucher) {
+                if (isRedeemed) {
+                    modalActions.innerHTML = `
+                        <p class="text-lg font-bold text-red-600 bg-red-100 p-2 rounded-lg">VOUCHER HAS BEEN REDEEMED!</p>
+                        <p class="text-sm text-gray-500 mt-2">Enjoy your date! The calendar tracks this as complete.</p>
+                    `;
+                } else {
+                    const redeemButton = document.createElement('button');
+                    redeemButton.id = 'redeem-button';
+                    redeemButton.className = 'bg-red-500 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transform transition duration-150 hover:scale-105';
+                    redeemButton.textContent = 'REDEEM VOUCHER NOW!';
+                    redeemButton.onclick = () => redeemVoucher(day);
+                    
+                    modalActions.innerHTML = `
+                        <p class="text-sm text-gray-600 mb-3">Click this when you are ready to claim this date/activity!</p>
+                    `;
+                    modalActions.appendChild(redeemButton);
+                }
+            } else {
+                 modalActions.innerHTML = `<p class="text-sm text-gray-500">Just a message of love from me to you.</p>`;
+            }
+
+
+            modalDay.textContent = day;
+
+            // Show the modal
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            
+            // Mark as opened (this happens regardless of redemption)
+            markDoorAsOpened(day);
+        }
+
+        // --- MODAL CONTROLS ---
+
+        document.getElementById('close-modal').addEventListener('click', () => {
+            const modal = document.getElementById('modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        });
+
+        // Close modal when clicking outside of the content
+        document.getElementById('modal').addEventListener('click', (e) => {
+            if (e.target.id === 'modal') {
+                e.target.classList.add('hidden');
+                e.target.classList.remove('flex');
+            }
+        });
+
+        // Expose setup function globally so the Firebase script can call it
+        window.setupCalendar = window.setupCalendar || (() => {
+            // Default setup if Firebase initialization is skipped (e.g., config missing)
+            document.getElementById('calendar-grid').classList.remove('opacity-0');
+            document.getElementById('loading-indicator').classList.add('hidden');
+            renderCalendar();
+        });
+
+        // Initial render if the Firebase script doesn't execute (for non-Canvas environments)
+        if (typeof __firebase_config === 'undefined' && typeof window.setupCalendar === 'function') {
+             window.setupCalendar(null, 'default-user', 'default-app');
+        }
+    </script>
+</body>
+</html>
