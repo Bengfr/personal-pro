@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Our Future Date Countdown</title>
+    <title>Advent </title>
     <!-- Load Tailwind CSS for beautiful, responsive styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
@@ -93,6 +93,21 @@
          */
         async function initializeFirebase() {
             try {
+                // Helper: wait for the page-level `setupCalendar` function
+                // which is defined in the body script, and may not be present
+                // when this head module executes. Wait up to 3s before giving up.
+                const waitForSetupCalendar = async (dbInstance, uid, appIdToCall) => {
+                    const start = Date.now();
+                    while (typeof window.setupCalendar !== 'function' && Date.now() - start < 3000) {
+                        await new Promise(r => setTimeout(r, 50));
+                    }
+                    if (typeof window.setupCalendar === 'function') {
+                        try { window.setupCalendar(dbInstance, uid, appIdToCall); }
+                        catch (e) { console.warn('Error calling setupCalendar:', e); }
+                    } else {
+                        console.warn('setupCalendar not available after waiting; UI fallback will run later.');
+                    }
+                };
                 if (!firebaseConfig) {
                     console.error("Firebase configuration missing. Using local fallback.");
                     window.isAuthReady = true;
@@ -115,14 +130,17 @@
                 window.isAuthReady = true;
                 console.log("Firebase initialized and user signed in:", window.userId);
 
-                // Once authenticated, start the main application logic
-                window.setupCalendar(window.db, window.userId, appId);
+                // Once authenticated, start the main application logic — wait for the
+                // body script to register `window.setupCalendar` before invoking it.
+                waitForSetupCalendar(window.db, window.userId, appId);
 
             } catch (error) {
                 console.error("Error during Firebase initialization or authentication:", error);
                 // Fallback state: Auth is technically ready (failed), proceed with limited functionality
                 window.isAuthReady = true;
-                window.setupCalendar(null, null, appId);
+                // Attempt to call setupCalendar when available; if not, the body
+                // script already has a fallback to render the calendar.
+                waitForSetupCalendar(null, null, appId);
             }
         }
 
@@ -133,8 +151,8 @@
 <body class="p-4 md:p-8 flex flex-col items-center">
 
     <header class="text-center mb-8 p-4 bg-white rounded-xl shadow-lg w-full max-w-4xl">
-        <h1 class="text-4xl font-bold text-gray-800">24 Dates with You</h1>
-        <p class="text-lg text-gray-600 mt-2">Opening the future, one day at a time, my love.</p>
+        <h1 class="text-4xl font-bold text-gray-800">24 Dager med ting og tang</h1>
+        <p class="text-lg text-gray-600 mt-2">Åpne lukene dag etter</p>
         <p id="current-date-display" class="mt-2 text-sm text-gray-500"></p>
         <div id="loading-indicator" class="mt-4 flex justify-center items-center space-x-2">
             <div class="loading-ring"></div>
@@ -171,9 +189,29 @@
         const CALENDAR_ENTRIES = [
             // Focused on compliments and future plans for early relationship
             { day: 1, title: "Æ elske å vær med dæ'", content: "Hver gang æ e med dæ så flyr tia og æ e konstant glad. Fortsett å vær den du er", type: 'compliment', media: null },
-            { day: 2, title: "VOUCHER: The 'You Pick' Takeout Night", content: "Et free pass til takeout night, ka en du vil spis. hvilken type mat resturant og valgfritt film av dæ", type: 'voucher', media: "https://placehold.co/800x400/FFD700/800080?text=VOUCHER:+Takeout+Night" },
-            { day: 3, title: "Cutie patotie", content: "Du vil værra sexy men i mine øyne er du alltid søt og når du er sexy så tørr æ egt ikke at du ska ut.", type: 'compliment', media: null },
-            { day: 4, title: "VOUCHER: Game Night", content: "Game night. Tanken er overcooked, mario, escape room board game.", type: 'voucher', media: "https://placehold.co/800x400/98FB98/006400?text=VOUCHER:+Deep+Talk" },
+            { day: 2, title: "VOUCHER: The 'You Pick' Takeout Night", content: "Et free pass til takeout night, ka en du vil spis. hvilken type mat resturant og valgfritt film av dæ", type: 'voucher', media: "" },
+            { day: 3, title: "Cutie patotie", content: "Elsker alt med dæ, du e cute i mine øyne", type: 'compliment', media: null },
+            { day: 4, title: "VOUCHER: Game Night", content: "Game night. Tanken er overcooked 2, mario, escape room board game elns hvis du ikke er sliten.", type: 'voucher', media: "" },
+            { day: 5, title: "Flower Gift", content: "Får Blomster i dag. Love you", type: 'voucher', media: "" },
+            { day: 6, title: "Elsker å hør på dæ", content: "kan hende æ e stille i blant, og du tenke kanskje æ e lei av å hør at du snakke. Æ elske å hør på at du snakke.", type: 'compliment', media: null },
+            { day: 7, title: "Forced Relaxation", content: "I dag skal du slappe av. Si ka du treng og æ ordne. Chill søndag på dæ. Servant for a day type", type: 'voucher', media: null },
+            { day: 8, title: "Her e noe for når du kjeder dæ", content: "https://the-growth-grove.vercel.app/", type: 'compliment', media: null },
+            { day: 9, title: "Din Sans for Humor", content: "Den tørre, vittige kommentaren du kom med iblant hitte. Det er den bully humoren din som æ elske.", type: 'compliment', media: null },
+            { day: 10, title: "VOUCHER: Suprise(spørs på været)", content: "1 mnd sia vi ble sammen ( egt før men tar 10.)", type: 'voucher', media: null },            
+            { day: 11, title: "Clingy", content: "Æ vise kanskje ikke så my at æ like det, men elsker når du er sånn beskyttende av mæ og ikke vil at æ ska snakk med andre etc. Føle virkelig at du e glad i mæ. Sorry at æ ikke e helt sånn :(", type: 'compliment', media: null },
+            { day: 12, title: "Halveis. Tid med dæ", content: "Elsker å værra me ddæ, tiden flyr og æ smile konstant. Æ håpe vi får bringe mye tid sammen neste år. You make me the happiest man ever", type: 'compliment', media: null },
+            { day: 13, title: "Love you", content: "Tia flyr så sinnsykt fort når æ e med dæ fordi du gjør mæ så sykt happy. Håpe vi får muligheten t å bringe my tid med hverandre neste år", type: 'compliment', media: null },
+            { day: 14, title: "Hvis du kjeder dæ", content: "https://neal.fun/", type: 'compliment', media: null },
+            { day: 15, title: "Elsker stilen din", content: "Du ser ALLTID  fantastisk ut, selv om du ikke syns d. Elsker alt med dæ.", type: 'compliment', media: null },
+            { day: 16, title: "VOUCHER: Movie Night of Your Choice", content: "Velg en film du har lyst til å se, og vi skal lage en koselig filmkveld med popcorn og alt du liker.", type: 'voucher', media: "" },
+            { day: 17, title: "Takk for at du starta å send mæ reels", content: "Æ elske hvor my du bryr dæ, både mot mæ og andre rundt dæ. Spesielt når det kommer til de andre i venne gjengen.", type: 'compliment', media: null },
+            { day: 18, title: "VOUCHER: Chil day", content: "Chill dag igjen. Det har vært en travel desember. Det er viktig å få slappet av litt. I dag skal æ hjelp dæ å slappe av.", type: 'voucher', media: "" },
+            { day: 19, title: "Din Kreativitet", content: "Æ elsker hvor kreativ du e, enten det e i måten du kler dæ på eller hvordan du ser verden rundt dæ.", type: 'compliment', media: null },
+            { day: 20, title: "VOUCHER: Spa Day at Home", content: "En dag dedikert til avslapning hjemme med ansiktsmasker, massasje og alt som får dæ til å føle dæ bra.", type: 'voucher', media: "" },
+            { day: 21, title: "VOUCHER: Date?", content: "Tanken er å ta deg med på date. Kan gjøre det etter desmeber også, siden det er så mye som foregår nå.", type: 'voucher', media: ""},
+            { day: 22, title: "Din Latter", content: "Æ elske lyden av latteren din. Det beste æ vet e å gjør dæ flau. Elsker reaksjonen din.", type: 'compliment', media: null },
+            { day: 23, title: "Dagen Før Julaften", content: "Jeg er så glad år endte opp sånn. Jeg ser frem til alle høytidene og alt annet vi får dele fremover.", type: 'compliment', media: null },
+            { day: 24, title: "God Jul!", content: "Du er den beste gaven jeg kunne ønske meg. Takk for at du gjør disse tidlige månedene så fantastiske. Jeg elsker deg, og God Jul!", type: 'compliment', media: "https://placehold.co/800x400/CDDC39/ffffff?text=God+Jul" }
 
         ];
 
